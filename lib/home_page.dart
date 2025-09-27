@@ -679,6 +679,28 @@ class _HomePageState extends State<HomePage> {
                 ],
                 lineTouchData: LineTouchData(
                   enabled: true,
+                  // Tắt đường dọc xuống trục X
+                  getTouchedSpotIndicator:
+                      (LineChartBarData barData, List<int> spotIndexes) {
+                    return spotIndexes.map((spotIndex) {
+                      return TouchedSpotIndicatorData(
+                        // Tắt đường dọc bằng cách đặt strokeWidth = 0
+                        FlLine(strokeWidth: 0, color: Colors.transparent),
+                        // Hiển thị chấm tròn
+                        FlDotData(
+                          show: true,
+                          getDotPainter: (spot, percent, barData, index) {
+                            return FlDotCirclePainter(
+                              radius: 4,
+                              color: color,
+                              strokeWidth: 2,
+                              strokeColor: Colors.white,
+                            );
+                          },
+                        ),
+                      );
+                    }).toList();
+                  },
                   touchTooltipData: LineTouchTooltipData(
                     getTooltipItems: (touchedSpots) {
                       return touchedSpots
