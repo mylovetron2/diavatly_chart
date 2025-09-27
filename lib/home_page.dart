@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/gestures.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:fl_chart/fl_chart.dart';
 
@@ -44,9 +43,11 @@ class _HomePageState extends State<HomePage> {
 
   bool showSettings = false;
 
-  // Scroll variables cho mouse wheel
-  double scrollOffset = 0;
-  double viewportSize = 20;
+  // Time compression/expansion variables
+  double timeScale = 1.0; // 1.0 = normal, <1.0 = compressed, >1.0 = expanded
+  double timeScaleMin = 0.1; // Tỷ lệ co tối thiểu
+  double timeScaleMax = 5.0; // Tỷ lệ giãn tối đa
+  bool showTimeControls = false;
 
   Future<void> pickFile() async {
     FilePickerResult? result = await FilePicker.platform
@@ -100,23 +101,27 @@ class _HomePageState extends State<HomePage> {
   List<DataPoint> _getScrolledData() {
     if (data.isEmpty) return data;
 
-    // Nếu viewport size >= tổng dữ liệu, hiển thị tất cả
-    if (viewportSize >= data.length) return data;
-
-    // Lọc dữ liệu theo scroll offset
-    int startIndex = scrollOffset.round();
-    int endIndex = (scrollOffset + viewportSize - 1).round();
-
-    startIndex = startIndex.clamp(0, data.length - 1);
-    endIndex = endIndex.clamp(startIndex, data.length - 1);
-
-    return data.sublist(startIndex, endIndex + 1);
+    // Mặc định hiển thị toàn bộ thời gian từ min TIME tới max TIME
+    return data;
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Biểu Đồ DVL')),
+      appBar: AppBar(
+        title: Row(
+          children: [
+            Image.asset(
+              'logo.jpg',
+              height: 40,
+              width: 40,
+              fit: BoxFit.contain,
+            ),
+            const SizedBox(width: 12),
+            const Text('Biểu Đồ DVL'),
+          ],
+        ),
+      ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -138,10 +143,22 @@ class _HomePageState extends State<HomePage> {
                       : null,
                   child: Text(showSettings ? 'Ẩn Cài Đặt' : 'Hiện Cài Đặt'),
                 ),
+                const SizedBox(width: 16),
+                ElevatedButton(
+                  onPressed: data.isNotEmpty
+                      ? () {
+                          setState(() {
+                            showTimeControls = !showTimeControls;
+                          });
+                        }
+                      : null,
+                  child: Text(showTimeControls ? 'Ẩn TIME' : 'Co/Giãn TIME'),
+                ),
               ],
             ),
             if (fileName != null) Text('Tệp đã chọn: $fileName'),
             if (showSettings) _buildSettingsPanel(),
+            if (showTimeControls && data.isNotEmpty) _buildTimeControlsPanel(),
             const SizedBox(height: 16),
             Expanded(
               child: data.isEmpty
@@ -258,6 +275,138 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildTimeControlsPanel() {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.orange.shade300),
+        borderRadius: BorderRadius.circular(8),
+        color: Colors.orange.shade50,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Co/Giãn Trục Thời Gian',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              // Time Scale Slider
+              Expanded(
+                flex: 3,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Tỷ lệ TIME: ${timeScale.toStringAsFixed(1)}x',
+                        style: const TextStyle(
+                            fontSize: 14, fontWeight: FontWeight.w500)),
+                    const SizedBox(height: 8),
+                    Slider(
+                      value: timeScale,
+                      min: timeScaleMin,
+                      max: timeScaleMax,
+                      divisions: ((timeScaleMax - timeScaleMin) * 10).round(),
+                      onChanged: (value) {
+                        setState(() {
+                          timeScale = value;
+                        });
+                      },
+                      label: '${timeScale.toStringAsFixed(1)}x',
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Co ${timeScaleMin.toStringAsFixed(1)}x',
+                            style: TextStyle(
+                                fontSize: 10, color: Colors.grey.shade600)),
+                        Text('Bình thường 1.0x',
+                            style: TextStyle(
+                                fontSize: 10, color: Colors.grey.shade600)),
+                        Text('Giãn ${timeScaleMax.toStringAsFixed(1)}x',
+                            style: TextStyle(
+                                fontSize: 10, color: Colors.grey.shade600)),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              // Quick buttons
+              Expanded(
+                flex: 2,
+                child: Column(
+                  children: [
+                    const Text('Nhanh:',
+                        style: TextStyle(
+                            fontSize: 12, fontWeight: FontWeight.w500)),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _buildQuickScaleButton('0.5x', 0.5),
+                        _buildQuickScaleButton('1.0x', 1.0),
+                        _buildQuickScaleButton('2.0x', 2.0),
+                        _buildQuickScaleButton('3.0x', 3.0),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Viewport info
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.orange.shade100,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: Colors.orange.shade200),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Thông tin hiển thị:',
+                    style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.orange.shade800)),
+                const SizedBox(height: 4),
+                Text('• Hiển thị: Toàn thời gian (${data.length} điểm dữ liệu)',
+                    style:
+                        TextStyle(fontSize: 11, color: Colors.orange.shade700)),
+                Text(
+                    '• Tỷ lệ co/giãn: ${timeScale < 1 ? "Co ${(1 / timeScale).toStringAsFixed(1)} lần" : timeScale > 1 ? "Giãn ${timeScale.toStringAsFixed(1)} lần" : "Bình thường"}',
+                    style:
+                        TextStyle(fontSize: 11, color: Colors.orange.shade700)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuickScaleButton(String label, double scale) {
+    bool isSelected = (timeScale - scale).abs() < 0.01;
+    return ElevatedButton(
+      onPressed: () {
+        setState(() {
+          timeScale = scale;
+        });
+      },
+      style: ElevatedButton.styleFrom(
+        backgroundColor: isSelected ? Colors.orange : Colors.orange.shade100,
+        foregroundColor: isSelected ? Colors.white : Colors.orange.shade800,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        minimumSize: Size.zero,
+      ),
+      child: Text(label, style: const TextStyle(fontSize: 11)),
     );
   }
 
@@ -488,67 +637,46 @@ class _HomePageState extends State<HomePage> {
           ],
         ),
         const SizedBox(height: 8),
-        // 3 đồ thị riêng biệt với scale phù hợp - có thể scroll bằng chuột
+        // 3 đồ thị riêng biệt với scale phù hợp - hiển thị toàn thời gian
         Expanded(
-          child: Listener(
-            onPointerSignal: (pointerSignal) {
-              if (pointerSignal is PointerScrollEvent &&
-                  displayData.length >= viewportSize) {
-                setState(() {
-                  double scrollDelta = pointerSignal.scrollDelta.dy;
-                  double scrollStep = viewportSize / 10;
-
-                  if (scrollDelta > 0) {
-                    // Scroll down (tăng thời gian)
-                    scrollOffset = (scrollOffset + scrollStep).clamp(0,
-                        (data.length - viewportSize).clamp(0, double.infinity));
-                  } else {
-                    // Scroll up (giảm thời gian)
-                    scrollOffset = (scrollOffset - scrollStep).clamp(0,
-                        (data.length - viewportSize).clamp(0, double.infinity));
-                  }
-                });
-              }
-            },
-            child: Row(
-              children: [
-                // Đồ thị LPM
-                Expanded(
-                  child: _buildSingleChart(
-                      'LPM',
-                      lpmColor,
-                      displayData.map((e) => e.lpm).toList(),
-                      lpmMin,
-                      lpmMax,
-                      lpmLineWidth,
-                      displayData),
-                ),
-                const SizedBox(width: 8),
-                // Đồ thị RPM
-                Expanded(
-                  child: _buildSingleChart(
-                      'RPM',
-                      rpmColor,
-                      displayData.map((e) => e.rpm).toList(),
-                      rpmMin,
-                      rpmMax,
-                      rpmLineWidth,
-                      displayData),
-                ),
-                const SizedBox(width: 8),
-                // Đồ thị LÍT
-                Expanded(
-                  child: _buildSingleChart(
-                      'LÍT',
-                      literColor,
-                      displayData.map((e) => e.liter).toList(),
-                      literMin,
-                      literMax,
-                      literLineWidth,
-                      displayData),
-                ),
-              ],
-            ),
+          child: Row(
+            children: [
+              // Đồ thị LPM
+              Expanded(
+                child: _buildSingleChart(
+                    'LPM',
+                    lpmColor,
+                    displayData.map((e) => e.lpm).toList(),
+                    lpmMin,
+                    lpmMax,
+                    lpmLineWidth,
+                    displayData),
+              ),
+              const SizedBox(width: 8),
+              // Đồ thị RPM
+              Expanded(
+                child: _buildSingleChart(
+                    'RPM',
+                    rpmColor,
+                    displayData.map((e) => e.rpm).toList(),
+                    rpmMin,
+                    rpmMax,
+                    rpmLineWidth,
+                    displayData),
+              ),
+              const SizedBox(width: 8),
+              // Đồ thị LÍT
+              Expanded(
+                child: _buildSingleChart(
+                    'LÍT',
+                    literColor,
+                    displayData.map((e) => e.liter).toList(),
+                    literMin,
+                    literMax,
+                    literLineWidth,
+                    displayData),
+              ),
+            ],
           ),
         ),
       ],
