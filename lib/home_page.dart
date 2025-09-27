@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:fl_chart/fl_chart.dart';
 
@@ -42,6 +43,10 @@ class _HomePageState extends State<HomePage> {
   Color literColor = Colors.green;
 
   bool showSettings = false;
+
+  // Scroll variables cho mouse wheel
+  double scrollOffset = 0;
+  double viewportSize = 20;
 
   Future<void> pickFile() async {
     FilePickerResult? result = await FilePicker.platform
@@ -90,6 +95,22 @@ class _HomePageState extends State<HomePage> {
     if (lpmMin == lpmMax) lpmMax = lpmMin + 1;
     if (rpmMin == rpmMax) rpmMax = rpmMin + 1;
     if (literMin == literMax) literMax = literMin + 1;
+  }
+
+  List<DataPoint> _getScrolledData() {
+    if (data.isEmpty) return data;
+
+    // Nếu viewport size >= tổng dữ liệu, hiển thị tất cả
+    if (viewportSize >= data.length) return data;
+
+    // Lọc dữ liệu theo scroll offset
+    int startIndex = scrollOffset.round();
+    int endIndex = (scrollOffset + viewportSize - 1).round();
+
+    startIndex = startIndex.clamp(0, data.length - 1);
+    endIndex = endIndex.clamp(startIndex, data.length - 1);
+
+    return data.sublist(startIndex, endIndex + 1);
   }
 
   @override
@@ -449,6 +470,9 @@ class _HomePageState extends State<HomePage> {
   Widget buildChart() {
     if (data.isEmpty) return const SizedBox();
 
+    // Sử dụng dữ liệu đã scroll
+    List<DataPoint> displayData = _getScrolledData();
+
     return Column(
       children: [
         // Legend
@@ -464,51 +488,81 @@ class _HomePageState extends State<HomePage> {
           ],
         ),
         const SizedBox(height: 8),
-        // 3 đồ thị riêng biệt với scale phù hợp
+        // 3 đồ thị riêng biệt với scale phù hợp - có thể scroll bằng chuột
         Expanded(
-          child: Row(
-            children: [
-              // Đồ thị LPM
-              Expanded(
-                child: _buildSingleChart(
-                    'LPM',
-                    lpmColor,
-                    data.map((e) => e.lpm).toList(),
-                    lpmMin,
-                    lpmMax,
-                    lpmLineWidth),
-              ),
-              const SizedBox(width: 8),
-              // Đồ thị RPM
-              Expanded(
-                child: _buildSingleChart(
-                    'RPM',
-                    rpmColor,
-                    data.map((e) => e.rpm).toList(),
-                    rpmMin,
-                    rpmMax,
-                    rpmLineWidth),
-              ),
-              const SizedBox(width: 8),
-              // Đồ thị LÍT
-              Expanded(
-                child: _buildSingleChart(
-                    'LÍT',
-                    literColor,
-                    data.map((e) => e.liter).toList(),
-                    literMin,
-                    literMax,
-                    literLineWidth),
-              ),
-            ],
+          child: Listener(
+            onPointerSignal: (pointerSignal) {
+              if (pointerSignal is PointerScrollEvent &&
+                  displayData.length >= viewportSize) {
+                setState(() {
+                  double scrollDelta = pointerSignal.scrollDelta.dy;
+                  double scrollStep = viewportSize / 10;
+
+                  if (scrollDelta > 0) {
+                    // Scroll down (tăng thời gian)
+                    scrollOffset = (scrollOffset + scrollStep).clamp(0,
+                        (data.length - viewportSize).clamp(0, double.infinity));
+                  } else {
+                    // Scroll up (giảm thời gian)
+                    scrollOffset = (scrollOffset - scrollStep).clamp(0,
+                        (data.length - viewportSize).clamp(0, double.infinity));
+                  }
+                });
+              }
+            },
+            child: Row(
+              children: [
+                // Đồ thị LPM
+                Expanded(
+                  child: _buildSingleChart(
+                      'LPM',
+                      lpmColor,
+                      displayData.map((e) => e.lpm).toList(),
+                      lpmMin,
+                      lpmMax,
+                      lpmLineWidth,
+                      displayData),
+                ),
+                const SizedBox(width: 8),
+                // Đồ thị RPM
+                Expanded(
+                  child: _buildSingleChart(
+                      'RPM',
+                      rpmColor,
+                      displayData.map((e) => e.rpm).toList(),
+                      rpmMin,
+                      rpmMax,
+                      rpmLineWidth,
+                      displayData),
+                ),
+                const SizedBox(width: 8),
+                // Đồ thị LÍT
+                Expanded(
+                  child: _buildSingleChart(
+                      'LÍT',
+                      literColor,
+                      displayData.map((e) => e.liter).toList(),
+                      literMin,
+                      literMax,
+                      literLineWidth,
+                      displayData),
+                ),
+              ],
+            ),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildSingleChart(String title, Color color, List<double> values,
-      double minValue, double maxValue, double lineWidth) {
+  Widget _buildSingleChart(
+      String title,
+      Color color,
+      List<double> values,
+      double minValue,
+      double maxValue,
+      double lineWidth,
+      List<DataPoint> displayData) {
     List<FlSpot> spots = [];
 
     // Debug: In ra màu để kiểm tra
@@ -545,13 +599,14 @@ class _HomePageState extends State<HomePage> {
                     : maxValue * 1.1, // Cộng 10% để có khoảng trống
                 // Y axis: Time (từ trên xuống)
                 minY: 0,
-                maxY: (data.length - 1).toDouble(),
+                maxY: (displayData.length - 1).toDouble(),
                 gridData: FlGridData(
                   show: true,
                   drawVerticalLine: true,
                   drawHorizontalLine: true,
-                  horizontalInterval:
-                      data.length > 10 ? (data.length / 5).floorToDouble() : 1,
+                  horizontalInterval: displayData.length > 10
+                      ? (displayData.length / 5).floorToDouble()
+                      : 1,
                   verticalInterval: (maxValue - minValue) / 5,
                   getDrawingHorizontalLine: (value) {
                     return FlLine(
@@ -582,17 +637,17 @@ class _HomePageState extends State<HomePage> {
                     sideTitles: SideTitles(
                       showTitles: title == 'LPM', // Chỉ hiển thị ở đồ thị LPM
                       reservedSize: title == 'LPM' ? 60 : 0,
-                      interval: data.length > 10
-                          ? (data.length / 3).floorToDouble()
+                      interval: displayData.length > 10
+                          ? (displayData.length / 3).floorToDouble()
                           : 1,
                       getTitlesWidget: (value, meta) {
                         if (title != 'LPM') return const SizedBox.shrink();
 
                         int yIndex = value.toInt();
-                        int dataIndex = data.length - 1 - yIndex;
-                        if (dataIndex >= 0 && dataIndex < data.length) {
+                        int dataIndex = displayData.length - 1 - yIndex;
+                        if (dataIndex >= 0 && dataIndex < displayData.length) {
                           return Text(
-                            data[dataIndex].time,
+                            displayData[dataIndex].time,
                             style: const TextStyle(fontSize: 8),
                           );
                         }
@@ -629,12 +684,13 @@ class _HomePageState extends State<HomePage> {
                       return touchedSpots
                           .map((LineBarSpot touchedSpot) {
                             int dataIndex = touchedSpot.y.toInt();
-                            int realDataIndex = data.length - 1 - dataIndex;
+                            int realDataIndex =
+                                displayData.length - 1 - dataIndex;
                             if (realDataIndex >= 0 &&
-                                realDataIndex < data.length) {
+                                realDataIndex < displayData.length) {
                               double xValue = touchedSpot.x;
                               return LineTooltipItem(
-                                '$title: ${xValue.toStringAsFixed(1)}\n${data[realDataIndex].time}',
+                                '$title: ${xValue.toStringAsFixed(1)}\n${displayData[realDataIndex].time}',
                                 TextStyle(
                                     color:
                                         const Color.fromARGB(255, 49, 20, 20),
