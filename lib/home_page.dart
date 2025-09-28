@@ -262,7 +262,7 @@ class _HomePageState extends State<HomePage> {
                         const SizedBox(width: 16),
                         // Đồ thị bên phải
                         Expanded(
-                          flex: 3,
+                          flex: 5,
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
