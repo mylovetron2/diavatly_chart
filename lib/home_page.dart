@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:fl_chart/fl_chart.dart';
 
@@ -43,12 +44,22 @@ class _HomePageState extends State<HomePage> {
 
   bool showSettings = false;
 
-  // Time compression/expansion variables
-  double timeScale = 1.0; // 1.0 = normal, <1.0 = compressed, >1.0 = expanded
-  double timeScaleMin = 0.1; // Tỷ lệ co tối thiểu
-  double timeScaleMax = 5.0; // Tỷ lệ giãn tối đa
-  bool showTimeControls = false;
+  // Simple zoom functionality - sử dụng window-based zoom thay vì sampling
+  int timeZoomLevel = 3; // Zoom level (1-5): 1=zoomed out, 5=zoomed in
+  double zoomCenterRatio = 0.5; // Điểm trung tâm zoom (0.0 - 1.0)
 
+  // Time scrolling functionality
+  double timeScrollPosition =
+      1.0; // Vị trí cuộn TIME (1.0=đầu, 0.0=cuối) - đã đảo ngược
+
+  // Throttling cho mouse wheel
+  DateTime? _lastZoomTime;
+  static const Duration _zoomThrottleDuration = Duration(milliseconds: 100);
+
+  // Cache cho dữ liệu zoom để tránh tính toán lại liên tục
+  List<DataPoint>? _cachedZoomedData;
+  int? _cachedZoomLevel;
+  double? _cachedScrollPosition;
   Future<void> pickFile() async {
     FilePickerResult? result = await FilePicker.platform
         .pickFiles(type: FileType.custom, allowedExtensions: ['txt']);
@@ -60,6 +71,10 @@ class _HomePageState extends State<HomePage> {
         data = parseData(lines);
         // Initialize min/max values when data is loaded
         _initializeMinMaxValues();
+        // Xóa cache khi load dữ liệu mới
+        _cachedZoomedData = null;
+        _cachedZoomLevel = null;
+        _cachedScrollPosition = null;
       });
     }
   }
@@ -101,8 +116,73 @@ class _HomePageState extends State<HomePage> {
   List<DataPoint> _getScrolledData() {
     if (data.isEmpty) return data;
 
-    // Mặc định hiển thị toàn bộ thời gian từ min TIME tới max TIME
-    return data;
+    // Áp dụng zoom đơn giản - lọc dữ liệu theo mức zoom
+    return _getZoomedData();
+  }
+
+  // Lọc dữ liệu theo zoom level với window-based zoom (mượt hơn)
+  List<DataPoint> _getZoomedData() {
+    if (data.isEmpty) return data;
+
+    // Kiểm tra cache để tránh tính toán lại
+    if (_cachedZoomLevel == timeZoomLevel &&
+        _cachedScrollPosition == timeScrollPosition &&
+        _cachedZoomedData != null) {
+      return _cachedZoomedData!;
+    }
+
+    // Tính tỷ lệ zoom: Level càng cao = window càng nhỏ = zoom in càng nhiều
+    double zoomRatio;
+    switch (timeZoomLevel) {
+      case 1:
+        zoomRatio = 1.0;
+        break; // Zoom OUT: hiện tất cả
+      case 2:
+        zoomRatio = 0.7;
+        break; // Zoom OUT: hiện 70%
+      case 3:
+        zoomRatio = 0.5;
+        break; // Trung bình: hiện 50%
+      case 4:
+        zoomRatio = 0.3;
+        break; // Zoom IN: hiện 30%
+      case 5:
+        zoomRatio = 0.15;
+        break; // Zoom IN nhiều nhất: hiện 15%
+      default:
+        zoomRatio = 0.5;
+    }
+
+    List<DataPoint> result;
+
+    // Nếu zoom out hoàn toàn thì hiện tất cả
+    if (zoomRatio >= 1.0) {
+      result = data;
+    } else {
+      // Tính window size dựa trên zoom ratio
+      int windowSize = (data.length * zoomRatio).ceil();
+      if (windowSize >= data.length) {
+        result = data;
+      } else {
+        // Tính vị trí bắt đầu dựa trên time scroll position
+        // timeScrollPosition: 1.0 = đầu dữ liệu, 0.0 = cuối dữ liệu
+        int startIndex =
+            ((data.length - windowSize) * (1.0 - timeScrollPosition)).round();
+        startIndex = startIndex.clamp(0, data.length - windowSize);
+
+        int endIndex = (startIndex + windowSize).clamp(0, data.length);
+
+        // Trả về dữ liệu trong window (liên tục, không nhảy cóc)
+        result = data.sublist(startIndex, endIndex);
+      }
+    }
+
+    // Cache kết quả
+    _cachedZoomLevel = timeZoomLevel;
+    _cachedScrollPosition = timeScrollPosition;
+    _cachedZoomedData = result;
+
+    return result;
   }
 
   @override
@@ -143,22 +223,10 @@ class _HomePageState extends State<HomePage> {
                       : null,
                   child: Text(showSettings ? 'Ẩn Cài Đặt' : 'Hiện Cài Đặt'),
                 ),
-                const SizedBox(width: 16),
-                ElevatedButton(
-                  onPressed: data.isNotEmpty
-                      ? () {
-                          setState(() {
-                            showTimeControls = !showTimeControls;
-                          });
-                        }
-                      : null,
-                  child: Text(showTimeControls ? 'Ẩn TIME' : 'Co/Giãn TIME'),
-                ),
               ],
             ),
             if (fileName != null) Text('Tệp đã chọn: $fileName'),
             if (showSettings) _buildSettingsPanel(),
-            if (showTimeControls && data.isNotEmpty) _buildTimeControlsPanel(),
             const SizedBox(height: 16),
             Expanded(
               child: data.isEmpty
@@ -275,138 +343,6 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildTimeControlsPanel() {
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 8),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        border: Border.all(color: Colors.orange.shade300),
-        borderRadius: BorderRadius.circular(8),
-        color: Colors.orange.shade50,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Co/Giãn Trục Thời Gian',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              // Time Scale Slider
-              Expanded(
-                flex: 3,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Tỷ lệ TIME: ${timeScale.toStringAsFixed(1)}x',
-                        style: const TextStyle(
-                            fontSize: 14, fontWeight: FontWeight.w500)),
-                    const SizedBox(height: 8),
-                    Slider(
-                      value: timeScale,
-                      min: timeScaleMin,
-                      max: timeScaleMax,
-                      divisions: ((timeScaleMax - timeScaleMin) * 10).round(),
-                      onChanged: (value) {
-                        setState(() {
-                          timeScale = value;
-                        });
-                      },
-                      label: '${timeScale.toStringAsFixed(1)}x',
-                    ),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('Co ${timeScaleMin.toStringAsFixed(1)}x',
-                            style: TextStyle(
-                                fontSize: 10, color: Colors.grey.shade600)),
-                        Text('Bình thường 1.0x',
-                            style: TextStyle(
-                                fontSize: 10, color: Colors.grey.shade600)),
-                        Text('Giãn ${timeScaleMax.toStringAsFixed(1)}x',
-                            style: TextStyle(
-                                fontSize: 10, color: Colors.grey.shade600)),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 16),
-              // Quick buttons
-              Expanded(
-                flex: 2,
-                child: Column(
-                  children: [
-                    const Text('Nhanh:',
-                        style: TextStyle(
-                            fontSize: 12, fontWeight: FontWeight.w500)),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        _buildQuickScaleButton('0.5x', 0.5),
-                        _buildQuickScaleButton('1.0x', 1.0),
-                        _buildQuickScaleButton('2.0x', 2.0),
-                        _buildQuickScaleButton('3.0x', 3.0),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          // Viewport info
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.orange.shade100,
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: Colors.orange.shade200),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Thông tin hiển thị:',
-                    style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.orange.shade800)),
-                const SizedBox(height: 4),
-                Text('• Hiển thị: Toàn thời gian (${data.length} điểm dữ liệu)',
-                    style:
-                        TextStyle(fontSize: 11, color: Colors.orange.shade700)),
-                Text(
-                    '• Tỷ lệ co/giãn: ${timeScale < 1 ? "Co ${(1 / timeScale).toStringAsFixed(1)} lần" : timeScale > 1 ? "Giãn ${timeScale.toStringAsFixed(1)} lần" : "Bình thường"}',
-                    style:
-                        TextStyle(fontSize: 11, color: Colors.orange.shade700)),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildQuickScaleButton(String label, double scale) {
-    bool isSelected = (timeScale - scale).abs() < 0.01;
-    return ElevatedButton(
-      onPressed: () {
-        setState(() {
-          timeScale = scale;
-        });
-      },
-      style: ElevatedButton.styleFrom(
-        backgroundColor: isSelected ? Colors.orange : Colors.orange.shade100,
-        foregroundColor: isSelected ? Colors.white : Colors.orange.shade800,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        minimumSize: Size.zero,
-      ),
-      child: Text(label, style: const TextStyle(fontSize: 11)),
     );
   }
 
@@ -616,6 +552,192 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  // Zoom helper functions với throttling
+  void _zoomIn() {
+    final now = DateTime.now();
+    if (_lastZoomTime != null &&
+        now.difference(_lastZoomTime!) < _zoomThrottleDuration) {
+      return; // Throttle - bỏ qua nếu zoom quá nhanh
+    }
+    _lastZoomTime = now;
+
+    if (timeZoomLevel < 5) {
+      setState(() {
+        timeZoomLevel++;
+      });
+    }
+  }
+
+  void _zoomOut() {
+    final now = DateTime.now();
+    if (_lastZoomTime != null &&
+        now.difference(_lastZoomTime!) < _zoomThrottleDuration) {
+      return; // Throttle - bỏ qua nếu zoom quá nhanh
+    }
+    _lastZoomTime = now;
+
+    if (timeZoomLevel > 1) {
+      setState(() {
+        timeZoomLevel--;
+      });
+    }
+  }
+
+  Widget _buildVerticalTimeScrollControl() {
+    if (data.isEmpty) return const SizedBox();
+
+    // Tính toán thông tin hiển thị
+    List<DataPoint> displayData = _getScrolledData();
+    double zoomRatio = displayData.length / data.length;
+
+    return Container(
+      width: 120,
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Colors.blue.shade50,
+        border: Border.all(color: Colors.blue.shade200),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        children: [
+          // Header
+          Text(
+            'TIME',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: Colors.blue.shade800,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Zoom: $timeZoomLevel',
+            style: TextStyle(
+              fontSize: 10,
+              color: Colors.blue.shade600,
+            ),
+          ),
+          Text(
+            '${(zoomRatio * 100).toStringAsFixed(0)}%',
+            style: TextStyle(
+              fontSize: 10,
+              color: Colors.blue.shade600,
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // Nút cuộn về đầu (thời gian sớm nhất)
+          SizedBox(
+            width: double.infinity,
+            height: 28,
+            child: ElevatedButton(
+              onPressed: () {
+                setState(() {
+                  timeScrollPosition = 1.0; // Đảo ngược: 1.0 = đầu dữ liệu
+                  _cachedZoomedData = null;
+                });
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue.shade100,
+                foregroundColor: Colors.blue.shade800,
+                padding: EdgeInsets.zero,
+              ),
+              child: const Icon(Icons.first_page, size: 16),
+            ),
+          ),
+          const SizedBox(height: 4),
+
+          // Thanh cuộn dọc chính với labels
+          Expanded(
+            child: Column(
+              children: [
+                // Label "Đầu"
+                Text(
+                  'Đầu',
+                  style: TextStyle(
+                    fontSize: 8,
+                    color: Colors.blue.shade600,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                // Slider dọc
+                Expanded(
+                  child: RotatedBox(
+                    quarterTurns: 3, // Xoay slider 270 độ để thành dọc
+                    child: Slider(
+                      value: timeScrollPosition,
+                      min: 0.0,
+                      max: 1.0,
+                      divisions: 20,
+                      activeColor: Colors.blue.shade600,
+                      inactiveColor: Colors.blue.shade200,
+                      onChanged: (value) {
+                        setState(() {
+                          timeScrollPosition = value;
+                          _cachedZoomedData = null;
+                        });
+                      },
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                // Label "Cuối"
+                Text(
+                  'Cuối',
+                  style: TextStyle(
+                    fontSize: 8,
+                    color: Colors.blue.shade600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 4),
+          // Nút cuộn về cuối (thời gian muộn nhất)
+          SizedBox(
+            width: double.infinity,
+            height: 28,
+            child: ElevatedButton(
+              onPressed: () {
+                setState(() {
+                  timeScrollPosition = 0.0; // Đảo ngược: 0.0 = cuối dữ liệu
+                  _cachedZoomedData = null;
+                });
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue.shade100,
+                foregroundColor: Colors.blue.shade800,
+                padding: EdgeInsets.zero,
+              ),
+              child: const Icon(Icons.last_page, size: 16),
+            ),
+          ),
+
+          const SizedBox(height: 8),
+          // Thông tin thời gian
+          if (displayData.isNotEmpty) ...[
+            Text(
+              displayData.first.time.substring(0, 8), // Chỉ lấy HH:MM:SS
+              style: TextStyle(
+                fontSize: 9,
+                color: Colors.blue.shade600,
+              ),
+            ),
+            const Icon(Icons.more_vert, size: 12, color: Colors.grey),
+            Text(
+              displayData.last.time.substring(0, 8), // Chỉ lấy HH:MM:SS
+              style: TextStyle(
+                fontSize: 9,
+                color: Colors.blue.shade600,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget buildChart() {
     if (data.isEmpty) return const SizedBox();
 
@@ -637,50 +759,99 @@ class _HomePageState extends State<HomePage> {
           ],
         ),
         const SizedBox(height: 8),
-        // 3 đồ thị riêng biệt với scale phù hợp - hiển thị toàn thời gian
+        // 3 đồ thị riêng biệt với scale phù hợp - Zoom bằng chuột
+        // Layout mới: Biểu đồ + Thanh cuộn TIME bên phải
         Expanded(
           child: Row(
             children: [
-              // Đồ thị LPM
+              // Phần biểu đồ chính
               Expanded(
-                child: _buildSingleChart(
-                    'LPM',
-                    lpmColor,
-                    displayData.map((e) => e.lpm).toList(),
-                    lpmMin,
-                    lpmMax,
-                    lpmLineWidth,
-                    displayData),
+                child: Listener(
+                  onPointerSignal: (pointerSignal) {
+                    if (pointerSignal is PointerScrollEvent) {
+                      // Zoom trực tiếp bằng chuột wheel
+                      if (pointerSignal.scrollDelta.dy < 0) {
+                        // Scroll up = Zoom In
+                        _zoomIn();
+                      } else {
+                        // Scroll down = Zoom Out
+                        _zoomOut();
+                      }
+                    }
+                  },
+                  child: Row(
+                    children: [
+                      // Đồ thị LPM
+                      Expanded(
+                        key: const ValueKey('lpm_chart'),
+                        child: _buildSingleChart(
+                            'LPM',
+                            lpmColor,
+                            displayData.map((e) => e.lpm).toList(),
+                            lpmMin,
+                            lpmMax,
+                            lpmLineWidth,
+                            displayData),
+                      ),
+                      const SizedBox(width: 8),
+                      // Đồ thị RPM
+                      Expanded(
+                        key: const ValueKey('rpm_chart'),
+                        child: _buildSingleChart(
+                            'RPM',
+                            rpmColor,
+                            displayData.map((e) => e.rpm).toList(),
+                            rpmMin,
+                            rpmMax,
+                            rpmLineWidth,
+                            displayData),
+                      ),
+                      const SizedBox(width: 8),
+                      // Đồ thị LÍT
+                      Expanded(
+                        key: const ValueKey('liter_chart'),
+                        child: _buildSingleChart(
+                            'LÍT',
+                            literColor,
+                            displayData.map((e) => e.liter).toList(),
+                            literMin,
+                            literMax,
+                            literLineWidth,
+                            displayData),
+                      ),
+                    ],
+                  ),
+                ),
               ),
               const SizedBox(width: 8),
-              // Đồ thị RPM
-              Expanded(
-                child: _buildSingleChart(
-                    'RPM',
-                    rpmColor,
-                    displayData.map((e) => e.rpm).toList(),
-                    rpmMin,
-                    rpmMax,
-                    rpmLineWidth,
-                    displayData),
-              ),
-              const SizedBox(width: 8),
-              // Đồ thị LÍT
-              Expanded(
-                child: _buildSingleChart(
-                    'LÍT',
-                    literColor,
-                    displayData.map((e) => e.liter).toList(),
-                    literMin,
-                    literMax,
-                    literLineWidth,
-                    displayData),
-              ),
+              // Thanh cuộn TIME dọc bên phải
+              _buildVerticalTimeScrollControl(),
             ],
           ),
         ),
       ],
     );
+  }
+
+  // Function tính toán smart interval cho vertical grid
+  double _calculateSmartInterval(double maxValue, double minValue) {
+    double range = maxValue - minValue;
+
+    if (range == 0) return 1; // Tránh chia cho 0
+
+    // Chọn interval dựa trên độ lớn của dữ liệu
+    if (range <= 10) return 1; // 1, 2, 3...
+    if (range <= 50) return 5; // 5, 10, 15...
+    if (range <= 100) return 10; // 10, 20, 30...
+    if (range <= 500) return 50; // 50, 100, 150...
+    if (range <= 1000) return 100; // 100, 200, 300...
+    if (range <= 5000) return 500; // 500, 1000, 1500...
+    if (range <= 10000) return 1000; // 1000, 2000, 3000...
+    if (range <= 50000) return 5000; // 5000, 10000, 15000...
+    if (range <= 100000) return 10000; // 10000, 20000, 30000...
+
+    // Với dữ liệu rất lớn, chia thành khoảng 5-8 phần
+    return (range / 6).roundToDouble();
   }
 
   Widget _buildSingleChart(
@@ -691,17 +862,11 @@ class _HomePageState extends State<HomePage> {
       double maxValue,
       double lineWidth,
       List<DataPoint> displayData) {
-    List<FlSpot> spots = [];
-
-    // Debug: In ra màu để kiểm tra
-    print('$title - Color: $color, Min: $minValue, Max: $maxValue');
-
-    for (int i = 0; i < values.length; i++) {
-      // Y = thời gian (đảo ngược để thời gian từ trên xuống tăng dần)
-      // X = giá trị của loại dữ liệu này
+    // Tối ưu: cache spots để tránh tính toán lại liên tục
+    List<FlSpot> spots = List.generate(values.length, (i) {
       double yPos = (values.length - 1 - i).toDouble();
-      spots.add(FlSpot(values[i], yPos));
-    }
+      return FlSpot(values[i], yPos);
+    });
 
     return Container(
       decoration: BoxDecoration(
@@ -735,7 +900,7 @@ class _HomePageState extends State<HomePage> {
                   horizontalInterval: displayData.length > 10
                       ? (displayData.length / 5).floorToDouble()
                       : 1,
-                  verticalInterval: (maxValue - minValue) / 5,
+                  verticalInterval: _calculateSmartInterval(maxValue, minValue),
                   getDrawingHorizontalLine: (value) {
                     return FlLine(
                         color: Colors.grey.shade300, strokeWidth: 0.5);
@@ -765,8 +930,9 @@ class _HomePageState extends State<HomePage> {
                     sideTitles: SideTitles(
                       showTitles: title == 'LPM', // Chỉ hiển thị ở đồ thị LPM
                       reservedSize: title == 'LPM' ? 60 : 0,
+                      // Sử dụng cùng interval với horizontal grid để căn chỉnh
                       interval: displayData.length > 10
-                          ? (displayData.length / 3).floorToDouble()
+                          ? (displayData.length / 5).floorToDouble()
                           : 1,
                       getTitlesWidget: (value, meta) {
                         if (title != 'LPM') return const SizedBox.shrink();
