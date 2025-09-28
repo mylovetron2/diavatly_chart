@@ -62,7 +62,7 @@ class _HomePageState extends State<HomePage> {
   double? _cachedScrollPosition;
   Future<void> pickFile() async {
     FilePickerResult? result = await FilePicker.platform
-        .pickFiles(type: FileType.custom, allowedExtensions: ['txt']);
+        .pickFiles(type: FileType.custom, allowedExtensions: ['txt', 'dxt']);
     if (result != null && result.files.single.path != null) {
       final file = File(result.files.single.path!);
       final lines = await file.readAsLines();
@@ -210,7 +210,7 @@ class _HomePageState extends State<HomePage> {
               children: [
                 ElevatedButton(
                   onPressed: pickFile,
-                  child: const Text('Chọn Tệp Dữ Liệu'),
+                  child: const Text('Chọn Tệp Dữ Liệu (.txt, .dxt)'),
                 ),
                 const SizedBox(width: 16),
                 ElevatedButton(
