@@ -591,79 +591,49 @@ class _HomePageState extends State<HomePage> {
     double zoomRatio = displayData.length / data.length;
 
     return Container(
-      width: 120,
-      padding: const EdgeInsets.all(8),
+      width: 80,
+      padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
         color: Colors.blue.shade50,
         border: Border.all(color: Colors.blue.shade200),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(6),
       ),
       child: Column(
         children: [
-          // Header
+          // Header gọn
           Text(
             'TIME',
             style: TextStyle(
-              fontSize: 14,
+              fontSize: 12,
               fontWeight: FontWeight.bold,
               color: Colors.blue.shade800,
             ),
           ),
-          const SizedBox(height: 4),
           Text(
-            'Zoom: $timeZoomLevel',
+            'L${timeZoomLevel} ${(zoomRatio * 100).toStringAsFixed(0)}%',
             style: TextStyle(
-              fontSize: 10,
+              fontSize: 9,
               color: Colors.blue.shade600,
             ),
           ),
-          Text(
-            '${(zoomRatio * 100).toStringAsFixed(0)}%',
-            style: TextStyle(
-              fontSize: 10,
-              color: Colors.blue.shade600,
-            ),
-          ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
 
-          // Nút cuộn về đầu (thời gian sớm nhất)
-          SizedBox(
-            width: double.infinity,
-            height: 28,
-            child: ElevatedButton(
-              onPressed: () {
-                setState(() {
-                  timeScrollPosition = 1.0; // Đảo ngược: 1.0 = đầu dữ liệu
-                  _cachedZoomedData = null;
-                });
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue.shade100,
-                foregroundColor: Colors.blue.shade800,
-                padding: EdgeInsets.zero,
-              ),
-              child: const Icon(Icons.first_page, size: 16),
-            ),
-          ),
-          const SizedBox(height: 4),
-
-          // Thanh cuộn dọc chính với labels
+          // Thanh cuộn dọc với labels gọn
           Expanded(
             child: Column(
               children: [
-                // Label "Đầu"
+                // Label "Đầu" nhỏ
                 Text(
                   'Đầu',
                   style: TextStyle(
-                    fontSize: 8,
+                    fontSize: 7,
                     color: Colors.blue.shade600,
                   ),
                 ),
-                const SizedBox(height: 4),
                 // Slider dọc
                 Expanded(
                   child: RotatedBox(
-                    quarterTurns: 3, // Xoay slider 270 độ để thành dọc
+                    quarterTurns: 3,
                     child: Slider(
                       value: timeScrollPosition,
                       min: 0.0,
@@ -680,59 +650,17 @@ class _HomePageState extends State<HomePage> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 4),
-                // Label "Cuối"
+                // Label "Cuối" nhỏ
                 Text(
                   'Cuối',
                   style: TextStyle(
-                    fontSize: 8,
+                    fontSize: 7,
                     color: Colors.blue.shade600,
                   ),
                 ),
               ],
             ),
           ),
-
-          const SizedBox(height: 4),
-          // Nút cuộn về cuối (thời gian muộn nhất)
-          SizedBox(
-            width: double.infinity,
-            height: 28,
-            child: ElevatedButton(
-              onPressed: () {
-                setState(() {
-                  timeScrollPosition = 0.0; // Đảo ngược: 0.0 = cuối dữ liệu
-                  _cachedZoomedData = null;
-                });
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue.shade100,
-                foregroundColor: Colors.blue.shade800,
-                padding: EdgeInsets.zero,
-              ),
-              child: const Icon(Icons.last_page, size: 16),
-            ),
-          ),
-
-          const SizedBox(height: 8),
-          // Thông tin thời gian
-          if (displayData.isNotEmpty) ...[
-            Text(
-              displayData.first.time.substring(0, 8), // Chỉ lấy HH:MM:SS
-              style: TextStyle(
-                fontSize: 9,
-                color: Colors.blue.shade600,
-              ),
-            ),
-            const Icon(Icons.more_vert, size: 12, color: Colors.grey),
-            Text(
-              displayData.last.time.substring(0, 8), // Chỉ lấy HH:MM:SS
-              style: TextStyle(
-                fontSize: 9,
-                color: Colors.blue.shade600,
-              ),
-            ),
-          ],
         ],
       ),
     );
@@ -760,10 +688,13 @@ class _HomePageState extends State<HomePage> {
         ),
         const SizedBox(height: 8),
         // 3 đồ thị riêng biệt với scale phù hợp - Zoom bằng chuột
-        // Layout mới: Biểu đồ + Thanh cuộn TIME bên phải
+        // Layout mới: Thanh cuộn TIME bên trái + Biểu đồ
         Expanded(
           child: Row(
             children: [
+              // Thanh cuộn TIME dọc bên trái
+              _buildVerticalTimeScrollControl(),
+              const SizedBox(width: 8),
               // Phần biểu đồ chính
               Expanded(
                 child: Listener(
@@ -823,9 +754,6 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
-              // Thanh cuộn TIME dọc bên phải
-              _buildVerticalTimeScrollControl(),
             ],
           ),
         ),
