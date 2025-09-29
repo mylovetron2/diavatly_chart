@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -63,11 +64,27 @@ class _HomePageState extends State<HomePage> {
   Future<void> pickFile() async {
     FilePickerResult? result = await FilePicker.platform
         .pickFiles(type: FileType.custom, allowedExtensions: ['txt', 'dxt']);
-    if (result != null && result.files.single.path != null) {
-      final file = File(result.files.single.path!);
-      final lines = await file.readAsLines();
+    if (result != null) {
+      final platformFile = result.files.single;
+      List<String> lines = [];
+
+      // Kiểm tra nếu chạy trên web
+      if (kIsWeb) {
+        // Web: Dùng bytes
+        if (platformFile.bytes != null) {
+          final content = String.fromCharCodes(platformFile.bytes!);
+          lines = content.split('\n');
+        }
+      } else {
+        // Desktop: Dùng path
+        if (platformFile.path != null) {
+          final file = File(platformFile.path!);
+          lines = await file.readAsLines();
+        }
+      }
+
       setState(() {
-        fileName = result.files.single.name;
+        fileName = platformFile.name;
         data = parseData(lines);
         // Initialize min/max values when data is loaded
         _initializeMinMaxValues();
