@@ -541,6 +541,7 @@ class _HomePageState extends State<HomePage> {
     // Hiển thị tất cả dữ liệu thay vì chỉ 10 dòng đầu
     final displayData = data;
     return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
       child: DataTable(
         columnSpacing: 20,
         columns: const [
@@ -695,11 +696,11 @@ class _HomePageState extends State<HomePage> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
-            _buildLegendItem('LPM', lpmColor,
+            _buildLegendItem('Lưu lượng \n   (lpm)', lpmColor,
                 '${lpmMin.toStringAsFixed(1)} - ${lpmMax.toStringAsFixed(1)}'),
-            _buildLegendItem('RPM', rpmColor,
+            _buildLegendItem('Tốc độ \n (rpm)', rpmColor,
                 '${rpmMin.toStringAsFixed(1)} - ${rpmMax.toStringAsFixed(1)}'),
-            _buildLegendItem('LÍT', literColor,
+            _buildLegendItem('Dung lượng \n       (l)', literColor,
                 '${literMin.toStringAsFixed(1)} - ${literMax.toStringAsFixed(1)}'),
           ],
         ),
